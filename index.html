@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chess.com Rapid Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --surface-0: #f7f7f5;
+    --surface-1: #ffffff;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --border: rgba(11,11,11,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-0: #141413;
+      --surface-1: #1f1f1d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --border: rgba(255,255,255,0.10);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  #page { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 500; margin: 0 0 1.5rem; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+  #status { font-size: 14px; color: var(--text-secondary); padding: 2rem 0; }
+  .section-label { font-size: 14px; color: var(--text-secondary); margin: 0 0 8px; }
+  .chart-wrap { position: relative; width: 100%; }
+  .card { background: var(--surface-1); border-radius: 8px; padding: 1rem; }
+</style>
+</head>
+<body>
+<div id="page">
+  <h1>Chess.com rapid dashboard</h1>
+  <h2 class="sr-only">Dashboard of last 20 rapid chess.com games: winrate, rating trend, opening performance, accuracy</h2>
+  <div id="status">Loading rapid games from chess.com...</div>
+  <div id="content" style="display:none;">
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:1.5rem;" id="metric-cards"></div>
+
+    <div style="margin-bottom:2rem;">
+      <p class="section-label">Rating trend (last 20 rapid games)</p>
+      <div class="chart-wrap" style="height:240px;">
+        <canvas id="ratingChart" role="img" aria-label="Line chart of rapid rating across last 20 games">Rating trend</canvas>
+      </div>
+    </div>
+
+    <div style="margin-bottom:2rem;">
+      <p class="section-label">Result by game (most recent on right)</p>
+      <div class="chart-wrap" style="height:120px;">
+        <canvas id="streakChart" role="img" aria-label="Bar chart of win, draw, or loss for each of the last 20 rapid games">Result sequence</canvas>
+      </div>
+    </div>
+
+    <div style="margin-bottom:2rem;">
+      <p class="section-label">Winrate by opening (played 2+ times)</p>
+      <div class="chart-wrap" id="openingChartWrap">
+        <canvas id="openingChart" role="img" aria-label="Horizontal bar chart of winrate percentage by chess opening">Opening winrate</canvas>
+      </div>
+    </div>
+
+    <div id="accuracySection" style="display:none;">
+      <p class="section-label">Accuracy trend (games with a completed review only)</p>
+      <div class="chart-wrap" style="height:200px;">
+        <canvas id="accuracyChart" role="img" aria-label="Line chart of game accuracy percentage over time">Accuracy trend</canvas>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(async function() {
+  // ---- Edit this to track a different account ----
+  const USERNAME = 'Sammy11111';
+  const GAME_COUNT = 20;
+  // --------------------------------------------------
+
+  const statusEl = document.getElementById('status');
+
+  function isWin(result) { return result === 'win'; }
+  function isDraw(result) {
+    return ['agreed','repetition','stalemate','insufficient','50move','timevsinsufficient'].includes(result);
+  }
+  function openingName(ecoUrl) {
+    if (!ecoUrl) return 'Unknown';
+    try {
+      const last = ecoUrl.split('/').pop();
+      return decodeURIComponent(last).replace(/-/g, ' ');
+    } catch(e) { return 'Unknown'; }
+  }
+
+  try {
+    const archivesRes = await fetch(`https://api.chess.com/pub/player/${USERNAME}/games/archives`);
+    if (!archivesRes.ok) throw new Error('Could not load archive list (check username)');
+    const archivesData = await archivesRes.json();
+    const archiveUrls = archivesData.archives.slice(-4);
+
+    let allRapid = [];
+    for (let i = archiveUrls.length - 1; i >= 0 && allRapid.length < GAME_COUNT; i--) {
+      const res = await fetch(archiveUrls[i]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const rapidGames = (data.games || []).filter(g => g.time_class === 'rapid' && g.rules === 'chess');
+      allRapid = rapidGames.concat(allRapid);
+    }
+
+    allRapid.sort((a,b) => a.end_time - b.end_time);
+    const lastN = allRapid.slice(-GAME_COUNT);
+
+    if (!lastN.length) {
+      statusEl.textContent = 'No rapid games found for this account.';
+      return;
+    }
+
+    const enriched = lastN.map(g => {
+      const isWhite = g.white.username.toLowerCase() === USERNAME.toLowerCase();
+      const myResult = isWhite ? g.white.result : g.black.result;
+      const myRating = isWhite ? g.white.rating : g.black.rating;
+      const myAccuracy = g.accuracies ? (isWhite ? g.accuracies.white : g.accuracies.black) : null;
+      let outcome = 'loss';
+      if (isWin(myResult)) outcome = 'win';
+      else if (isDraw(myResult)) outcome = 'draw';
+      return { outcome, myRating, myAccuracy, opening: openingName(g.eco), end_time: g.end_time };
+    });
+
+    const wins = enriched.filter(e => e.outcome === 'win').length;
+    const draws = enriched.filter(e => e.outcome === 'draw').length;
+    const losses = enriched.filter(e => e.outcome === 'loss').length;
+    const winrate = (wins / enriched.length * 100);
+
+    const firstRating = enriched[0].myRating;
+    const lastRating = enriched[enriched.length-1].myRating;
+    const ratingChange = lastRating - firstRating;
+
+    const accuracyGames = enriched.filter(e => e.myAccuracy !== null);
+    const avgAccuracy = accuracyGames.length
+      ? accuracyGames.reduce((s,e) => s+e.myAccuracy, 0) / accuracyGames.length
+      : null;
+
+    const recent5 = enriched.slice(-5).map(e => e.outcome==='win'?'W':e.outcome==='draw'?'D':'L').join('');
+
+    const cards = [
+      {label:'Winrate (last '+GAME_COUNT+')', value: winrate.toFixed(1)+'%'},
+      {label:'Record', value: wins+'W - '+losses+'L - '+draws+'D'},
+      {label:'Rating change', value: (ratingChange>=0?'+':'')+ratingChange},
+      {label:'Current rating', value: lastRating},
+      {label:'Avg accuracy', value: avgAccuracy!==null ? avgAccuracy.toFixed(1)+'%' : 'No reviewed games'},
+      {label:'Last 5 games', value: recent5}
+    ];
+    document.getElementById('metric-cards').innerHTML = cards.map(c => `
+      <div class="card">
+        <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">${c.label}</p>
+        <p style="font-size:24px;font-weight:500;margin:0;">${c.value}</p>
+      </div>`).join('');
+
+    const openingStats = {};
+    enriched.forEach(e => {
+      if (!openingStats[e.opening]) openingStats[e.opening] = {w:0,l:0,d:0};
+      if (e.outcome==='win') openingStats[e.opening].w++;
+      else if (e.outcome==='draw') openingStats[e.opening].d++;
+      else openingStats[e.opening].l++;
+    });
+    const openingEntries = Object.entries(openingStats)
+      .map(([name,s]) => ({name, games:s.w+s.l+s.d, wr: (s.w+0.5*s.d)/(s.w+s.l+s.d)*100}))
+      .filter(o => o.games >= 2)
+      .sort((a,b) => b.games - a.games)
+      .slice(0, 12);
+
+    statusEl.style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+
+    const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const winColor = '#1baf7a', lossColor = '#e34948', drawColor = '#eda100';
+    const gridColor = isDark ? '#2c2c2a' : '#e1e0d9';
+    const textColor = isDark ? '#c3c2b7' : '#52514e';
+
+    new Chart(document.getElementById('ratingChart'), {
+      type: 'line',
+      data: {
+        labels: enriched.map((e,i) => i+1),
+        datasets: [{
+          label: 'Rating', data: enriched.map(e => e.myRating),
+          borderColor: '#2a78d6', backgroundColor: 'rgba(42,120,214,0.1)',
+          fill: true, tension: 0.2, pointRadius: 3, pointBackgroundColor: '#2a78d6'
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display:false } },
+        scales: {
+          x: { title:{display:true,text:'Game # (chronological)',color:textColor}, grid:{display:false}, ticks:{color:textColor} },
+          y: { title:{display:true,text:'Rating',color:textColor}, grid:{color:gridColor}, ticks:{color:textColor} }
+        }
+      }
+    });
+
+    new Chart(document.getElementById('streakChart'), {
+      type: 'bar',
+      data: {
+        labels: enriched.map((e,i) => i+1),
+        datasets: [{
+          data: enriched.map(e => e.outcome==='win'?1:e.outcome==='draw'?0.3:-1),
+          backgroundColor: enriched.map(e => e.outcome==='win'?winColor:e.outcome==='draw'?drawColor:lossColor),
+          borderRadius: 3, barPercentage: 0.85
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display:false }, tooltip: { callbacks: { label: (ctx) => enriched[ctx.dataIndex].outcome } } },
+        scales: { x: { display:false }, y: { display:false, min:-1.2, max:1.2 } }
+      }
+    });
+
+    const openingHeight = Math.max(200, openingEntries.length*40+80);
+    document.getElementById('openingChartWrap').style.height = openingHeight+'px';
+    new Chart(document.getElementById('openingChart'), {
+      type: 'bar',
+      data: {
+        labels: openingEntries.map(o => o.name+' ('+o.games+')'),
+        datasets: [{ data: openingEntries.map(o => o.wr), backgroundColor: openingEntries.map(o => o.wr>=50 ? winColor : lossColor), borderRadius: 4 }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display:false }, tooltip: { callbacks: { label: (ctx) => ctx.raw.toFixed(0)+'% score (win=1, draw=0.5)' } } },
+        scales: {
+          x: { min:0, max:100, grid:{color:gridColor}, ticks:{color:textColor, callback:(v)=>v+'%'} },
+          y: { grid:{display:false}, ticks:{color:textColor, font:{size:11}} }
+        }
+      }
+    });
+
+    if (accuracyGames.length >= 2) {
+      document.getElementById('accuracySection').style.display = 'block';
+      new Chart(document.getElementById('accuracyChart'), {
+        type: 'line',
+        data: {
+          labels: accuracyGames.map((e,i) => i+1),
+          datasets: [{
+            label: 'Accuracy %', data: accuracyGames.map(e => e.myAccuracy),
+            borderColor: '#7f77dd', backgroundColor: 'rgba(127,119,221,0.1)',
+            fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#7f77dd'
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display:false } },
+          scales: {
+            x: { title:{display:true,text:'Reviewed game #',color:textColor}, grid:{display:false}, ticks:{color:textColor} },
+            y: { title:{display:true,text:'Accuracy %',color:textColor}, grid:{color:gridColor}, ticks:{color:textColor}, min:0, max:100 }
+          }
+        }
+      });
+    }
+
+  } catch (err) {
+    statusEl.textContent = 'Could not load data from chess.com (' + err.message + ').';
+  }
+})();
+</script>
+</body>
+</html>
