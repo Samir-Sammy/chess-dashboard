@@ -32,17 +32,21 @@
   }
   #page { max-width: 760px; margin: 0 auto; }
   h1 { font-size: 22px; font-weight: 500; margin: 0 0 1.5rem; }
+  h3 { font-size: 16px; font-weight: 500; margin: 0 0 1rem; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
   #status { font-size: 14px; color: var(--text-secondary); padding: 2rem 0; }
   .section-label { font-size: 14px; color: var(--text-secondary); margin: 0 0 8px; }
   .chart-wrap { position: relative; width: 100%; }
   .card { background: var(--surface-1); border-radius: 8px; padding: 1rem; }
+  .compare-card { background: var(--surface-1); border-radius: 12px; padding: 1rem 1.25rem; }
+  table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  td { padding: 3px 0; }
 </style>
 </head>
 <body>
 <div id="page">
   <h1>Chess.com rapid dashboard</h1>
-  <h2 class="sr-only">Dashboard of last 20 rapid chess.com games: winrate, rating trend, opening performance, accuracy</h2>
+  <h2 class="sr-only">Dashboard of last 20 rapid chess.com games plus a friend comparison: winrate, rating trend, opening performance, accuracy</h2>
   <div id="status">Loading rapid games from chess.com...</div>
   <div id="content" style="display:none;">
 
@@ -69,11 +73,16 @@
       </div>
     </div>
 
-    <div id="accuracySection" style="display:none;">
+    <div id="accuracySection" style="display:none;margin-bottom:2.5rem;">
       <p class="section-label">Accuracy trend (games with a completed review only)</p>
       <div class="chart-wrap" style="height:200px;">
         <canvas id="accuracyChart" role="img" aria-label="Line chart of game accuracy percentage over time">Accuracy trend</canvas>
       </div>
+    </div>
+
+    <div style="border-top:0.5px solid var(--border);padding-top:1.5rem;">
+      <h3>Friend comparison (last 20 rapid)</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;" id="compare-cards"></div>
     </div>
 
   </div>
@@ -81,10 +90,13 @@
 
 <script>
 (async function() {
-  // ---- Edit this to track a different account ----
-  const USERNAME = 'Sammy11111';
+  // ---- Edit these usernames to change who's tracked ----
+  const PLAYERS = [
+    { username: 'Sammy11111', label: 'You' },
+    { username: 'Onaji', label: 'Friend' }
+  ];
   const GAME_COUNT = 20;
-  // --------------------------------------------------
+  // --------------------------------------------------------
 
   const statusEl = document.getElementById('status');
 
@@ -100,31 +112,27 @@
     } catch(e) { return 'Unknown'; }
   }
 
-  try {
-    const archivesRes = await fetch(`https://api.chess.com/pub/player/${USERNAME}/games/archives`);
-    if (!archivesRes.ok) throw new Error('Could not load archive list (check username)');
+  async function fetchLastNRapid(username, n) {
+    const archivesRes = await fetch(`https://api.chess.com/pub/player/${username}/games/archives`);
+    if (!archivesRes.ok) throw new Error('Could not load archive list for ' + username);
     const archivesData = await archivesRes.json();
     const archiveUrls = archivesData.archives.slice(-4);
 
     let allRapid = [];
-    for (let i = archiveUrls.length - 1; i >= 0 && allRapid.length < GAME_COUNT; i--) {
+    for (let i = archiveUrls.length - 1; i >= 0 && allRapid.length < n; i--) {
       const res = await fetch(archiveUrls[i]);
       if (!res.ok) continue;
       const data = await res.json();
       const rapidGames = (data.games || []).filter(g => g.time_class === 'rapid' && g.rules === 'chess');
       allRapid = rapidGames.concat(allRapid);
     }
-
     allRapid.sort((a,b) => a.end_time - b.end_time);
-    const lastN = allRapid.slice(-GAME_COUNT);
+    return allRapid.slice(-n);
+  }
 
-    if (!lastN.length) {
-      statusEl.textContent = 'No rapid games found for this account.';
-      return;
-    }
-
-    const enriched = lastN.map(g => {
-      const isWhite = g.white.username.toLowerCase() === USERNAME.toLowerCase();
+  function enrichGames(games, username) {
+    return games.map(g => {
+      const isWhite = g.white.username.toLowerCase() === username.toLowerCase();
       const myResult = isWhite ? g.white.result : g.black.result;
       const myRating = isWhite ? g.white.rating : g.black.rating;
       const myAccuracy = g.accuracies ? (isWhite ? g.accuracies.white : g.accuracies.black) : null;
@@ -133,29 +141,46 @@
       else if (isDraw(myResult)) outcome = 'draw';
       return { outcome, myRating, myAccuracy, opening: openingName(g.eco), end_time: g.end_time };
     });
+  }
 
+  function computeStats(enriched) {
     const wins = enriched.filter(e => e.outcome === 'win').length;
     const draws = enriched.filter(e => e.outcome === 'draw').length;
     const losses = enriched.filter(e => e.outcome === 'loss').length;
-    const winrate = (wins / enriched.length * 100);
-
-    const firstRating = enriched[0].myRating;
-    const lastRating = enriched[enriched.length-1].myRating;
-    const ratingChange = lastRating - firstRating;
-
+    const winrate = enriched.length ? (wins / enriched.length * 100) : 0;
+    const ratingChange = enriched.length ? (enriched[enriched.length-1].myRating - enriched[0].myRating) : 0;
     const accuracyGames = enriched.filter(e => e.myAccuracy !== null);
     const avgAccuracy = accuracyGames.length
       ? accuracyGames.reduce((s,e) => s+e.myAccuracy, 0) / accuracyGames.length
       : null;
+    return { games: enriched.length, wins, draws, losses, winrate, ratingChange, avgAccuracy,
+      currentRating: enriched.length ? enriched[enriched.length-1].myRating : null };
+  }
 
+  try {
+    const playerResults = await Promise.all(PLAYERS.map(async p => {
+      const rawGames = await fetchLastNRapid(p.username, GAME_COUNT);
+      const enriched = enrichGames(rawGames, p.username);
+      return { ...p, enriched };
+    }));
+
+    const me = playerResults[0];
+    if (!me.enriched.length) {
+      statusEl.textContent = 'No rapid games found for your account.';
+      return;
+    }
+
+    const enriched = me.enriched;
+    const stats = computeStats(enriched);
+    const accuracyGames = enriched.filter(e => e.myAccuracy !== null);
     const recent5 = enriched.slice(-5).map(e => e.outcome==='win'?'W':e.outcome==='draw'?'D':'L').join('');
 
     const cards = [
-      {label:'Winrate (last '+GAME_COUNT+')', value: winrate.toFixed(1)+'%'},
-      {label:'Record', value: wins+'W - '+losses+'L - '+draws+'D'},
-      {label:'Rating change', value: (ratingChange>=0?'+':'')+ratingChange},
-      {label:'Current rating', value: lastRating},
-      {label:'Avg accuracy', value: avgAccuracy!==null ? avgAccuracy.toFixed(1)+'%' : 'No reviewed games'},
+      {label:'Winrate (last '+GAME_COUNT+')', value: stats.winrate.toFixed(1)+'%'},
+      {label:'Record', value: stats.wins+'W - '+stats.losses+'L - '+stats.draws+'D'},
+      {label:'Rating change', value: (stats.ratingChange>=0?'+':'')+stats.ratingChange},
+      {label:'Current rating', value: stats.currentRating},
+      {label:'Avg accuracy', value: stats.avgAccuracy!==null ? stats.avgAccuracy.toFixed(1)+'%' : 'No reviewed games'},
       {label:'Last 5 games', value: recent5}
     ];
     document.getElementById('metric-cards').innerHTML = cards.map(c => `
@@ -262,6 +287,27 @@
         }
       });
     }
+
+    const compareHtml = playerResults.map(p => {
+      const s = computeStats(p.enriched);
+      if (!p.enriched.length) {
+        return `<div class="compare-card">
+          <p style="font-weight:500;font-size:15px;margin:0 0 8px;">${p.label}</p>
+          <p style="font-size:13px;color:var(--text-secondary);margin:0;">No rapid games found.</p>
+        </div>`;
+      }
+      return `<div class="compare-card">
+        <p style="font-weight:500;font-size:15px;margin:0 0 10px;">${p.label}</p>
+        <table>
+          <tr><td style="color:var(--text-secondary);">Winrate</td><td style="text-align:right;">${s.winrate.toFixed(1)}%</td></tr>
+          <tr><td style="color:var(--text-secondary);">Record</td><td style="text-align:right;">${s.wins}W - ${s.losses}L - ${s.draws}D</td></tr>
+          <tr><td style="color:var(--text-secondary);">Rating change</td><td style="text-align:right;">${s.ratingChange>=0?'+':''}${s.ratingChange}</td></tr>
+          <tr><td style="color:var(--text-secondary);">Current rating</td><td style="text-align:right;">${s.currentRating}</td></tr>
+          <tr><td style="color:var(--text-secondary);">Avg accuracy</td><td style="text-align:right;">${s.avgAccuracy!==null ? s.avgAccuracy.toFixed(1)+'%' : '—'}</td></tr>
+        </table>
+      </div>`;
+    }).join('');
+    document.getElementById('compare-cards').innerHTML = compareHtml;
 
   } catch (err) {
     statusEl.textContent = 'Could not load data from chess.com (' + err.message + ').';
