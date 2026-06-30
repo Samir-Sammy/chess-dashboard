@@ -92,8 +92,9 @@
 (async function() {
   // ---- Edit these usernames to change who's tracked ----
   const PLAYERS = [
-    { username: 'Sammy11111', label: 'SammY-' },
-    { username: 'Onaji_bro', label: 'Jano' }
+    { username: 'Sammy11111', label: 'You' },
+    { username: 'Onaji_bro', label: 'Friend' },
+    { username: 'xxExitx', label: 'Alex ElPeeds' }
   ];
   const GAME_COUNT = 20;
   // --------------------------------------------------------
@@ -112,22 +113,35 @@
     } catch(e) { return 'Unknown'; }
   }
 
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
   async function fetchLastNRapid(username, n) {
     const archivesRes = await fetch(`https://api.chess.com/pub/player/${username}/games/archives`);
-    if (!archivesRes.ok) throw new Error('Could not load archive list for ' + username);
+    if (!archivesRes.ok) throw new Error('Could not load archive list for ' + username + ' (status ' + archivesRes.status + ')');
     const archivesData = await archivesRes.json();
-    const archiveUrls = archivesData.archives.slice(-4);
+    const archiveUrls = archivesData.archives.slice(-6);
 
     let allRapid = [];
+    let failedMonths = 0;
     for (let i = archiveUrls.length - 1; i >= 0 && allRapid.length < n; i--) {
-      const res = await fetch(archiveUrls[i]);
-      if (!res.ok) continue;
+      let res;
+      try {
+        res = await fetch(archiveUrls[i]);
+      } catch (e) {
+        failedMonths++; continue;
+      }
+      if (res.status === 429) {
+        await sleep(800);
+        try { res = await fetch(archiveUrls[i]); } catch(e) { failedMonths++; continue; }
+      }
+      if (!res.ok) { failedMonths++; continue; }
       const data = await res.json();
       const rapidGames = (data.games || []).filter(g => g.time_class === 'rapid' && g.rules === 'chess');
       allRapid = rapidGames.concat(allRapid);
+      await sleep(150);
     }
     allRapid.sort((a,b) => a.end_time - b.end_time);
-    return allRapid.slice(-n);
+    return { games: allRapid.slice(-n), failedMonths, monthsChecked: archiveUrls.length };
   }
 
   function enrichGames(games, username) {
@@ -158,11 +172,13 @@
   }
 
   try {
-    const playerResults = await Promise.all(PLAYERS.map(async p => {
-      const rawGames = await fetchLastNRapid(p.username, GAME_COUNT);
-      const enriched = enrichGames(rawGames, p.username);
-      return { ...p, enriched };
-    }));
+    const playerResults = [];
+    for (const p of PLAYERS) {
+      const result = await fetchLastNRapid(p.username, GAME_COUNT);
+      const enriched = enrichGames(result.games, p.username);
+      playerResults.push({ ...p, enriched, failedMonths: result.failedMonths, monthsChecked: result.monthsChecked });
+      await sleep(300);
+    }
 
     const me = playerResults[0];
     if (!me.enriched.length) {
@@ -291,9 +307,12 @@
     const compareHtml = playerResults.map(p => {
       const s = computeStats(p.enriched);
       if (!p.enriched.length) {
+        const warning = p.failedMonths > 0
+          ? `Could not load ${p.failedMonths} of ${p.monthsChecked} months (likely rate-limited) — try refreshing.`
+          : 'No rapid games found in the last 6 months.';
         return `<div class="compare-card">
           <p style="font-weight:500;font-size:15px;margin:0 0 8px;">${p.label}</p>
-          <p style="font-size:13px;color:var(--text-secondary);margin:0;">No rapid games found.</p>
+          <p style="font-size:13px;color:var(--text-secondary);margin:0;">${warning}</p>
         </div>`;
       }
       return `<div class="compare-card">
