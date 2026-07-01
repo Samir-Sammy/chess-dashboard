@@ -12,6 +12,7 @@
     --text-primary: #0b0b0b;
     --text-secondary: #52514e;
     --border: rgba(11,11,11,0.10);
+    --accent: #2a78d6;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -31,7 +32,7 @@
     padding: 2rem 1rem;
   }
   #page { max-width: 760px; margin: 0 auto; }
-  h1 { font-size: 22px; font-weight: 500; margin: 0 0 1.5rem; }
+  h1 { font-size: 22px; font-weight: 500; margin: 0 0 1.25rem; }
   h3 { font-size: 16px; font-weight: 500; margin: 0 0 1rem; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
   #status { font-size: 14px; color: var(--text-secondary); padding: 2rem 0; }
@@ -41,47 +42,80 @@
   .compare-card { background: var(--surface-1); border-radius: 12px; padding: 1rem 1.25rem; }
   table { width: 100%; font-size: 13px; border-collapse: collapse; }
   td { padding: 3px 0; }
+
+  /* Player selector cards */
+  #player-selector {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 1.75rem;
+  }
+  .player-card {
+    background: var(--surface-1);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    padding: 0.65rem 1.1rem;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: border-color 0.15s, color 0.15s;
+    user-select: none;
+  }
+  .player-card:hover { border-color: var(--border); color: var(--text-primary); }
+  .player-card.active {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .player-card .rating-badge {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin-left: 6px;
+  }
+  .player-card.active .rating-badge { color: var(--accent); opacity: 0.75; }
 </style>
 </head>
 <body>
 <div id="page">
   <h1>Chess.com rapid dashboard</h1>
-  <h2 class="sr-only">Dashboard of last 20 rapid chess.com games plus a friend comparison: winrate, rating trend, opening performance, accuracy</h2>
   <div id="status">Loading rapid games from chess.com...</div>
   <div id="content" style="display:none;">
+
+    <div id="player-selector"></div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:1.5rem;" id="metric-cards"></div>
 
     <div style="margin-bottom:2rem;">
-      <p class="section-label">Rating trend (last 20 rapid games)</p>
+      <p class="section-label" id="rating-label">Rating trend (last 20 rapid games)</p>
       <div class="chart-wrap" style="height:240px;">
-        <canvas id="ratingChart" role="img" aria-label="Line chart of rapid rating across last 20 games">Rating trend</canvas>
+        <canvas id="ratingChart"></canvas>
       </div>
     </div>
 
     <div style="margin-bottom:2rem;">
       <p class="section-label">Result by game (most recent on right)</p>
       <div class="chart-wrap" style="height:120px;">
-        <canvas id="streakChart" role="img" aria-label="Bar chart of win, draw, or loss for each of the last 20 rapid games">Result sequence</canvas>
+        <canvas id="streakChart"></canvas>
       </div>
     </div>
 
     <div style="margin-bottom:2rem;">
       <p class="section-label">Winrate by opening (played 2+ times)</p>
       <div class="chart-wrap" id="openingChartWrap">
-        <canvas id="openingChart" role="img" aria-label="Horizontal bar chart of winrate percentage by chess opening">Opening winrate</canvas>
+        <canvas id="openingChart"></canvas>
       </div>
     </div>
 
-    <div id="accuracySection" style="display:none;margin-bottom:2.5rem;">
+    <div id="accuracySection" style="margin-bottom:2.5rem;">
       <p class="section-label">Accuracy trend (games with a completed review only)</p>
       <div class="chart-wrap" style="height:200px;">
-        <canvas id="accuracyChart" role="img" aria-label="Line chart of game accuracy percentage over time">Accuracy trend</canvas>
+        <canvas id="accuracyChart"></canvas>
       </div>
     </div>
 
     <div style="border-top:0.5px solid var(--border);padding-top:1.5rem;">
-      <h3>Friend comparison (last 20 rapid)</h3>
+      <h3>All players — last 20 rapid</h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;" id="compare-cards"></div>
     </div>
 
@@ -90,58 +124,60 @@
 
 <script>
 (async function() {
-  // ---- Edit these usernames to change who's tracked ----
+  // ---- Edit these to change who's tracked ----
   const PLAYERS = [
-    { username: 'Sammy11111', label: 'SammY-' },
-    { username: 'Onaji_bro', label: 'Jano' },
-    { username: 'xxExitx', label: 'Alex ElPeeds' }
+    { username: 'Sammy11111', label: 'Sammy' },
+    { username: 'Onaji_bro',  label: 'Onaji' },
+    { username: 'xxExitx',    label: 'Alex ElPeeds' }
   ];
-  const GAME_COUNT = 100;
-  // --------------------------------------------------------
+  const GAME_COUNT = 20;
+  const DEFAULT_PLAYER = 0; // index of default (you)
+  // ---------------------------------------------
 
   const statusEl = document.getElementById('status');
+  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const winColor = '#1baf7a', lossColor = '#e34948', drawColor = '#eda100';
+  const gridColor = isDark ? '#2c2c2a' : '#e1e0d9';
+  const textColor = isDark ? '#c3c2b7' : '#52514e';
 
-  function isWin(result) { return result === 'win'; }
-  function isDraw(result) {
-    return ['agreed','repetition','stalemate','insufficient','50move','timevsinsufficient'].includes(result);
-  }
-  function openingName(ecoUrl) {
-    if (!ecoUrl) return 'Unknown';
-    try {
-      const last = ecoUrl.split('/').pop();
-      return decodeURIComponent(last).replace(/-/g, ' ');
-    } catch(e) { return 'Unknown'; }
-  }
+  let charts = {};
+  let allPlayerData = [];
+  let activeIndex = DEFAULT_PLAYER;
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+  function isWin(r) { return r === 'win'; }
+  function isDraw(r) {
+    return ['agreed','repetition','stalemate','insufficient','50move','timevsinsufficient'].includes(r);
+  }
+  function openingName(ecoUrl) {
+    if (!ecoUrl) return 'Unknown';
+    try { return decodeURIComponent(ecoUrl.split('/').pop()).replace(/-/g, ' '); }
+    catch(e) { return 'Unknown'; }
+  }
+
   async function fetchLastNRapid(username, n) {
     const archivesRes = await fetch(`https://api.chess.com/pub/player/${username}/games/archives`);
-    if (!archivesRes.ok) throw new Error('Could not load archive list for ' + username + ' (status ' + archivesRes.status + ')');
-    const archivesData = await archivesRes.json();
-    const archiveUrls = archivesData.archives.slice(-6);
+    if (!archivesRes.ok) throw new Error('Could not load archives for ' + username + ' (' + archivesRes.status + ')');
+    const { archives } = await archivesRes.json();
+    const urls = archives.slice(-6);
 
-    let allRapid = [];
-    let failedMonths = 0;
-    for (let i = archiveUrls.length - 1; i >= 0 && allRapid.length < n; i--) {
+    let allRapid = [], failedMonths = 0;
+    for (let i = urls.length - 1; i >= 0 && allRapid.length < n; i--) {
       let res;
-      try {
-        res = await fetch(archiveUrls[i]);
-      } catch (e) {
-        failedMonths++; continue;
-      }
+      try { res = await fetch(urls[i]); } catch(e) { failedMonths++; continue; }
       if (res.status === 429) {
         await sleep(800);
-        try { res = await fetch(archiveUrls[i]); } catch(e) { failedMonths++; continue; }
+        try { res = await fetch(urls[i]); } catch(e) { failedMonths++; continue; }
       }
       if (!res.ok) { failedMonths++; continue; }
       const data = await res.json();
-      const rapidGames = (data.games || []).filter(g => g.time_class === 'rapid' && g.rules === 'chess');
-      allRapid = rapidGames.concat(allRapid);
+      const rapid = (data.games || []).filter(g => g.time_class === 'rapid' && g.rules === 'chess');
+      allRapid = rapid.concat(allRapid);
       await sleep(150);
     }
     allRapid.sort((a,b) => a.end_time - b.end_time);
-    return { games: allRapid.slice(-n), failedMonths, monthsChecked: archiveUrls.length };
+    return { games: allRapid.slice(-n), failedMonths, monthsChecked: urls.length };
   }
 
   function enrichGames(games, username) {
@@ -153,7 +189,7 @@
       let outcome = 'loss';
       if (isWin(myResult)) outcome = 'win';
       else if (isDraw(myResult)) outcome = 'draw';
-      return { outcome, myRating, myAccuracy, opening: openingName(g.eco), end_time: g.end_time };
+      return { outcome, myRating, myAccuracy, opening: openingName(g.eco) };
     });
   }
 
@@ -161,43 +197,39 @@
     const wins = enriched.filter(e => e.outcome === 'win').length;
     const draws = enriched.filter(e => e.outcome === 'draw').length;
     const losses = enriched.filter(e => e.outcome === 'loss').length;
-    const winrate = enriched.length ? (wins / enriched.length * 100) : 0;
-    const ratingChange = enriched.length ? (enriched[enriched.length-1].myRating - enriched[0].myRating) : 0;
-    const accuracyGames = enriched.filter(e => e.myAccuracy !== null);
-    const avgAccuracy = accuracyGames.length
-      ? accuracyGames.reduce((s,e) => s+e.myAccuracy, 0) / accuracyGames.length
-      : null;
-    return { games: enriched.length, wins, draws, losses, winrate, ratingChange, avgAccuracy,
+    const winrate = enriched.length ? wins / enriched.length * 100 : 0;
+    const ratingChange = enriched.length ? enriched[enriched.length-1].myRating - enriched[0].myRating : 0;
+    const accGames = enriched.filter(e => e.myAccuracy !== null);
+    const avgAccuracy = accGames.length ? accGames.reduce((s,e) => s+e.myAccuracy, 0) / accGames.length : null;
+    return { wins, draws, losses, winrate, ratingChange, avgAccuracy,
       currentRating: enriched.length ? enriched[enriched.length-1].myRating : null };
   }
 
-  try {
-    const playerResults = [];
-    for (const p of PLAYERS) {
-      const result = await fetchLastNRapid(p.username, GAME_COUNT);
-      const enriched = enrichGames(result.games, p.username);
-      playerResults.push({ ...p, enriched, failedMonths: result.failedMonths, monthsChecked: result.monthsChecked });
-      await sleep(300);
-    }
+  function destroyChart(id) {
+    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  }
 
-    const me = playerResults[0];
-    if (!me.enriched.length) {
-      statusEl.textContent = 'No rapid games found for your account.';
-      return;
-    }
-
-    const enriched = me.enriched;
+  function renderForPlayer(idx) {
+    activeIndex = idx;
+    const p = allPlayerData[idx];
+    const enriched = p.enriched;
     const stats = computeStats(enriched);
-    const accuracyGames = enriched.filter(e => e.myAccuracy !== null);
+    const accGames = enriched.filter(e => e.myAccuracy !== null);
     const recent5 = enriched.slice(-5).map(e => e.outcome==='win'?'W':e.outcome==='draw'?'D':'L').join('');
 
+    // Update selector active state
+    document.querySelectorAll('.player-card').forEach((el, i) => {
+      el.classList.toggle('active', i === idx);
+    });
+
+    // Metric cards
     const cards = [
       {label:'Winrate (last '+GAME_COUNT+')', value: stats.winrate.toFixed(1)+'%'},
       {label:'Record', value: stats.wins+'W - '+stats.losses+'L - '+stats.draws+'D'},
       {label:'Rating change', value: (stats.ratingChange>=0?'+':'')+stats.ratingChange},
-      {label:'Current rating', value: stats.currentRating},
+      {label:'Current rating', value: stats.currentRating ?? '—'},
       {label:'Avg accuracy', value: stats.avgAccuracy!==null ? stats.avgAccuracy.toFixed(1)+'%' : 'No reviewed games'},
-      {label:'Last 5 games', value: recent5}
+      {label:'Last 5 games', value: recent5 || '—'}
     ];
     document.getElementById('metric-cards').innerHTML = cards.map(c => `
       <div class="card">
@@ -205,6 +237,7 @@
         <p style="font-size:24px;font-weight:500;margin:0;">${c.value}</p>
       </div>`).join('');
 
+    // Opening breakdown
     const openingStats = {};
     enriched.forEach(e => {
       if (!openingStats[e.opening]) openingStats[e.opening] = {w:0,l:0,d:0};
@@ -213,20 +246,12 @@
       else openingStats[e.opening].l++;
     });
     const openingEntries = Object.entries(openingStats)
-      .map(([name,s]) => ({name, games:s.w+s.l+s.d, wr: (s.w+0.5*s.d)/(s.w+s.l+s.d)*100}))
-      .filter(o => o.games >= 2)
-      .sort((a,b) => b.games - a.games)
-      .slice(0, 12);
+      .map(([name,s]) => ({name, games:s.w+s.l+s.d, wr:(s.w+0.5*s.d)/(s.w+s.l+s.d)*100}))
+      .filter(o => o.games >= 2).sort((a,b) => b.games - a.games).slice(0, 12);
 
-    statusEl.style.display = 'none';
-    document.getElementById('content').style.display = 'block';
-
-    const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
-    const winColor = '#1baf7a', lossColor = '#e34948', drawColor = '#eda100';
-    const gridColor = isDark ? '#2c2c2a' : '#e1e0d9';
-    const textColor = isDark ? '#c3c2b7' : '#52514e';
-
-    new Chart(document.getElementById('ratingChart'), {
+    // Rating chart
+    destroyChart('rating');
+    charts['rating'] = new Chart(document.getElementById('ratingChart'), {
       type: 'line',
       data: {
         labels: enriched.map((e,i) => i+1),
@@ -246,7 +271,9 @@
       }
     });
 
-    new Chart(document.getElementById('streakChart'), {
+    // Streak chart
+    destroyChart('streak');
+    charts['streak'] = new Chart(document.getElementById('streakChart'), {
       type: 'bar',
       data: {
         labels: enriched.map((e,i) => i+1),
@@ -258,61 +285,96 @@
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display:false }, tooltip: { callbacks: { label: (ctx) => enriched[ctx.dataIndex].outcome } } },
-        scales: { x: { display:false }, y: { display:false, min:-1.2, max:1.2 } }
+        plugins: { legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>enriched[ctx.dataIndex].outcome}} },
+        scales: { x:{display:false}, y:{display:false, min:-1.2, max:1.2} }
       }
     });
 
-    const openingHeight = Math.max(200, openingEntries.length*40+80);
+    // Opening chart
+    destroyChart('opening');
+    const openingHeight = Math.max(160, openingEntries.length*40+80);
     document.getElementById('openingChartWrap').style.height = openingHeight+'px';
-    new Chart(document.getElementById('openingChart'), {
-      type: 'bar',
-      data: {
-        labels: openingEntries.map(o => o.name+' ('+o.games+')'),
-        datasets: [{ data: openingEntries.map(o => o.wr), backgroundColor: openingEntries.map(o => o.wr>=50 ? winColor : lossColor), borderRadius: 4 }]
-      },
-      options: {
-        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display:false }, tooltip: { callbacks: { label: (ctx) => ctx.raw.toFixed(0)+'% score (win=1, draw=0.5)' } } },
-        scales: {
-          x: { min:0, max:100, grid:{color:gridColor}, ticks:{color:textColor, callback:(v)=>v+'%'} },
-          y: { grid:{display:false}, ticks:{color:textColor, font:{size:11}} }
+    if (openingEntries.length) {
+      charts['opening'] = new Chart(document.getElementById('openingChart'), {
+        type: 'bar',
+        data: {
+          labels: openingEntries.map(o => o.name+' ('+o.games+')'),
+          datasets: [{ data: openingEntries.map(o => o.wr), backgroundColor: openingEntries.map(o => o.wr>=50?winColor:lossColor), borderRadius:4 }]
+        },
+        options: {
+          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: { legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>ctx.raw.toFixed(0)+'% score (win=1, draw=0.5)'}} },
+          scales: {
+            x: { min:0, max:100, grid:{color:gridColor}, ticks:{color:textColor, callback:(v)=>v+'%'} },
+            y: { grid:{display:false}, ticks:{color:textColor, font:{size:11}} }
+          }
         }
-      }
-    });
+      });
+    }
 
-    if (accuracyGames.length >= 2) {
-      document.getElementById('accuracySection').style.display = 'block';
-      new Chart(document.getElementById('accuracyChart'), {
+    // Accuracy chart
+    destroyChart('accuracy');
+    const accSection = document.getElementById('accuracySection');
+    if (accGames.length >= 2) {
+      accSection.style.display = 'block';
+      charts['accuracy'] = new Chart(document.getElementById('accuracyChart'), {
         type: 'line',
         data: {
-          labels: accuracyGames.map((e,i) => i+1),
+          labels: accGames.map((e,i) => i+1),
           datasets: [{
-            label: 'Accuracy %', data: accuracyGames.map(e => e.myAccuracy),
+            label: 'Accuracy %', data: accGames.map(e => e.myAccuracy),
             borderColor: '#7f77dd', backgroundColor: 'rgba(127,119,221,0.1)',
             fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#7f77dd'
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display:false } },
+          plugins: { legend:{display:false} },
           scales: {
             x: { title:{display:true,text:'Reviewed game #',color:textColor}, grid:{display:false}, ticks:{color:textColor} },
             y: { title:{display:true,text:'Accuracy %',color:textColor}, grid:{color:gridColor}, ticks:{color:textColor}, min:0, max:100 }
           }
         }
       });
+    } else {
+      accSection.style.display = 'none';
+    }
+  }
+
+  try {
+    // Fetch all players sequentially
+    for (let i = 0; i < PLAYERS.length; i++) {
+      statusEl.textContent = `Loading ${PLAYERS[i].label}'s games... (${i+1}/${PLAYERS.length})`;
+      const result = await fetchLastNRapid(PLAYERS[i].username, GAME_COUNT);
+      const enriched = enrichGames(result.games, PLAYERS[i].username);
+      allPlayerData.push({ ...PLAYERS[i], enriched, failedMonths: result.failedMonths, monthsChecked: result.monthsChecked });
+      if (i < PLAYERS.length - 1) await sleep(300);
     }
 
-    const compareHtml = playerResults.map(p => {
+    statusEl.style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+
+    // Build player selector cards
+    const selectorEl = document.getElementById('player-selector');
+    allPlayerData.forEach((p, idx) => {
+      const stats = computeStats(p.enriched);
+      const btn = document.createElement('div');
+      btn.className = 'player-card' + (idx === DEFAULT_PLAYER ? ' active' : '');
+      btn.innerHTML = p.label + (stats.currentRating ? `<span class="rating-badge">${stats.currentRating}</span>` : '');
+      btn.addEventListener('click', () => renderForPlayer(idx));
+      selectorEl.appendChild(btn);
+    });
+
+    // Build comparison cards (static, always shows all players)
+    document.getElementById('compare-cards').innerHTML = allPlayerData.map(p => {
       const s = computeStats(p.enriched);
       if (!p.enriched.length) {
-        const warning = p.failedMonths > 0
-          ? `Could not load ${p.failedMonths} of ${p.monthsChecked} months (likely rate-limited) — try refreshing.`
+        const msg = p.failedMonths > 0
+          ? `Could not load ${p.failedMonths}/${p.monthsChecked} months — try refreshing.`
           : 'No rapid games found in the last 6 months.';
         return `<div class="compare-card">
           <p style="font-weight:500;font-size:15px;margin:0 0 8px;">${p.label}</p>
-          <p style="font-size:13px;color:var(--text-secondary);margin:0;">${warning}</p>
+          <p style="font-size:13px;color:var(--text-secondary);margin:0;">${msg}</p>
         </div>`;
       }
       return `<div class="compare-card">
@@ -321,12 +383,14 @@
           <tr><td style="color:var(--text-secondary);">Winrate</td><td style="text-align:right;">${s.winrate.toFixed(1)}%</td></tr>
           <tr><td style="color:var(--text-secondary);">Record</td><td style="text-align:right;">${s.wins}W - ${s.losses}L - ${s.draws}D</td></tr>
           <tr><td style="color:var(--text-secondary);">Rating change</td><td style="text-align:right;">${s.ratingChange>=0?'+':''}${s.ratingChange}</td></tr>
-          <tr><td style="color:var(--text-secondary);">Current rating</td><td style="text-align:right;">${s.currentRating}</td></tr>
+          <tr><td style="color:var(--text-secondary);">Current rating</td><td style="text-align:right;">${s.currentRating ?? '—'}</td></tr>
           <tr><td style="color:var(--text-secondary);">Avg accuracy</td><td style="text-align:right;">${s.avgAccuracy!==null ? s.avgAccuracy.toFixed(1)+'%' : '—'}</td></tr>
         </table>
       </div>`;
     }).join('');
-    document.getElementById('compare-cards').innerHTML = compareHtml;
+
+    // Render default player
+    renderForPlayer(DEFAULT_PLAYER);
 
   } catch (err) {
     statusEl.textContent = 'Could not load data from chess.com (' + err.message + ').';
