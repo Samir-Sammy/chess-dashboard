@@ -94,7 +94,7 @@
     </div>
 
     <div style="margin-bottom:2rem;">
-      <p class="section-label">Result by game (most recent on right)</p>
+      <p class="section-label">Result by game — last 100 (most recent on right)</p>
       <div class="chart-wrap" style="height:120px;">
         <canvas id="streakChart"></canvas>
       </div>
@@ -160,7 +160,7 @@
     const archivesRes = await fetch(`https://api.chess.com/pub/player/${username}/games/archives`);
     if (!archivesRes.ok) throw new Error('Could not load archives for ' + username + ' (' + archivesRes.status + ')');
     const { archives } = await archivesRes.json();
-    const urls = archives.slice(-6);
+    const urls = archives.slice(-14);
 
     let allRapid = [], failedMonths = 0;
     for (let i = urls.length - 1; i >= 0 && allRapid.length < n; i--) {
