@@ -87,7 +87,7 @@
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:1.5rem;" id="metric-cards"></div>
 
     <div style="margin-bottom:2rem;">
-      <p class="section-label" id="rating-label">Rating trend (last 20 rapid games)</p>
+      <p class="section-label" id="rating-label">Rating trend (last 100 rapid games)</p>
       <div class="chart-wrap" style="height:240px;">
         <canvas id="ratingChart"></canvas>
       </div>
@@ -115,7 +115,7 @@
     </div>
 
     <div style="border-top:0.5px solid var(--border);padding-top:1.5rem;">
-      <h3>All players — last 20 rapid</h3>
+      <h3>All players — last 100 rapid</h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;" id="compare-cards"></div>
     </div>
 
@@ -130,7 +130,7 @@
     { username: 'Onaji_bro',  label: 'Onaji' },
     { username: 'xxExitx',    label: 'Alex ElPeeds' }
   ];
-  const GAME_COUNT = 20;
+  const GAME_COUNT = 100;
   const DEFAULT_PLAYER = 0; // index of default (you)
   // ---------------------------------------------
 
