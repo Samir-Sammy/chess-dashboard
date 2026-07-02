@@ -126,7 +126,7 @@
 (async function() {
   // ---- Edit these to change who's tracked ----
   const PLAYERS = [
-    { username: 'Sammy11111', label: 'SammY-' },
+    { username: 'Sammy11111', label: 'Sammy' },
     { username: 'Onaji_bro',  label: 'Onaji' },
     { username: 'xxExitx',    label: 'Alex ElPeeds' }
   ];
@@ -215,8 +215,6 @@
     const enriched = p.enriched;
     const stats = computeStats(enriched);
     const accGames = enriched.filter(e => e.myAccuracy !== null);
-    const recent5 = enriched.slice(-5).map(e => e.outcome==='win'?'W':e.outcome==='draw'?'D':'L').join('');
-
     // Update selector active state
     document.querySelectorAll('.player-card').forEach((el, i) => {
       el.classList.toggle('active', i === idx);
@@ -228,8 +226,7 @@
       {label:'Record', value: stats.wins+'W - '+stats.losses+'L - '+stats.draws+'D'},
       {label:'Rating change', value: (stats.ratingChange>=0?'+':'')+stats.ratingChange},
       {label:'Current rating', value: stats.currentRating ?? '—'},
-      {label:'Avg accuracy', value: stats.avgAccuracy!==null ? stats.avgAccuracy.toFixed(1)+'%' : 'No reviewed games'},
-      {label:'Last 5 games', value: recent5 || '—'}
+      {label:'Avg accuracy', value: stats.avgAccuracy!==null ? stats.avgAccuracy.toFixed(1)+'%' : 'No reviewed games'}
     ];
     document.getElementById('metric-cards').innerHTML = cards.map(c => `
       <div class="card">
@@ -246,7 +243,7 @@
       else openingStats[e.opening].l++;
     });
     const openingEntries = Object.entries(openingStats)
-      .map(([name,s]) => ({name, games:s.w+s.l+s.d, wr:(s.w+0.5*s.d)/(s.w+s.l+s.d)*100}))
+      .map(([name,s]) => ({name, games:s.w+s.l+s.d, w:s.w, l:s.l, d:s.d, wr:(s.w+0.5*s.d)/(s.w+s.l+s.d)*100}))
       .filter(o => o.games >= 2).sort((a,b) => b.games - a.games).slice(0, 12);
 
     // Rating chart
@@ -290,23 +287,71 @@
       }
     });
 
-    // Opening chart
+    // Opening chart — stacked W/L/D
     destroyChart('opening');
-    const openingHeight = Math.max(160, openingEntries.length*40+80);
+    const openingHeight = Math.max(160, openingEntries.length*44+80);
     document.getElementById('openingChartWrap').style.height = openingHeight+'px';
     if (openingEntries.length) {
       charts['opening'] = new Chart(document.getElementById('openingChart'), {
         type: 'bar',
         data: {
-          labels: openingEntries.map(o => o.name+' ('+o.games+')'),
-          datasets: [{ data: openingEntries.map(o => o.wr), backgroundColor: openingEntries.map(o => o.wr>=50?winColor:lossColor), borderRadius:4 }]
+          labels: openingEntries.map(o => o.name),
+          datasets: [
+            {
+              label: 'Wins',
+              data: openingEntries.map(o => o.w),
+              backgroundColor: winColor,
+              borderRadius: 0
+            },
+            {
+              label: 'Draws',
+              data: openingEntries.map(o => o.d),
+              backgroundColor: drawColor,
+              borderRadius: 0
+            },
+            {
+              label: 'Losses',
+              data: openingEntries.map(o => o.l),
+              backgroundColor: lossColor,
+              borderRadius: 0
+            }
+          ]
         },
         options: {
-          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: { legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>ctx.raw.toFixed(0)+'% score (win=1, draw=0.5)'}} },
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { color: textColor, font: { size: 12 }, boxWidth: 12, padding: 16 }
+            },
+            tooltip: {
+              callbacks: {
+                title: (items) => openingEntries[items[0].dataIndex].name,
+                afterBody: (items) => {
+                  const o = openingEntries[items[0].dataIndex];
+                  return [
+                    `Total games: ${o.games}`,
+                    `Wins: ${o.w}  Draws: ${o.d}  Losses: ${o.l}`,
+                    `Score: ${o.wr.toFixed(0)}%`
+                  ];
+                }
+              }
+            }
+          },
           scales: {
-            x: { min:0, max:100, grid:{color:gridColor}, ticks:{color:textColor, callback:(v)=>v+'%'} },
-            y: { grid:{display:false}, ticks:{color:textColor, font:{size:11}} }
+            x: {
+              stacked: true,
+              grid: { color: gridColor },
+              ticks: { color: textColor, stepSize: 1 }
+            },
+            y: {
+              stacked: true,
+              grid: { display: false },
+              ticks: { color: textColor, font: { size: 11 } }
+            }
           }
         }
       });
