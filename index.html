@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,14 +13,27 @@
     --text-secondary: #52514e;
     --border: rgba(11,11,11,0.10);
     --accent: #2a78d6;
+    --grid: #e1e0d9;
+    --text-chart: #52514e;
+  }
+  [data-theme="dark"] {
+    --surface-0: #141413;
+    --surface-1: #1f1f1d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --border: rgba(255,255,255,0.10);
+    --grid: #2c2c2a;
+    --text-chart: #c3c2b7;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
+    [data-theme="auto"] {
       --surface-0: #141413;
       --surface-1: #1f1f1d;
       --text-primary: #ffffff;
       --text-secondary: #c3c2b7;
       --border: rgba(255,255,255,0.10);
+      --grid: #2c2c2a;
+      --text-chart: #c3c2b7;
     }
   }
   * { box-sizing: border-box; }
@@ -30,9 +43,10 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     margin: 0;
     padding: 2rem 1rem;
+    transition: background 0.2s, color 0.2s;
   }
   #page { max-width: 800px; margin: 0 auto; }
-  h1 { font-size: 22px; font-weight: 500; margin: 0 0 1.25rem; }
+  h1 { font-size: 22px; font-weight: 500; margin: 0; }
   h3 { font-size: 16px; font-weight: 500; margin: 0 0 1rem; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
   #status { font-size: 14px; color: var(--text-secondary); padding: 2rem 0; }
@@ -43,11 +57,32 @@
   table { width: 100%; font-size: 13px; border-collapse: collapse; }
   td { padding: 3px 0; }
 
+  /* Header row */
+  #header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+  }
+  #theme-toggle {
+    background: var(--surface-1);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.9rem;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition: all 0.15s;
+    user-select: none;
+  }
+  #theme-toggle:hover { color: var(--text-primary); border-color: var(--accent); }
+
+  /* Player selector */
   #player-selector {
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
-    margin-bottom: 1rem;
+    margin-bottom: 1.25rem;
   }
   .player-card {
     background: var(--surface-1);
@@ -66,6 +101,14 @@
   .player-card .rating-badge { font-size: 12px; font-weight: 400; color: var(--text-secondary); margin-left: 6px; }
   .player-card.active .rating-badge { color: var(--accent); opacity: 0.75; }
 
+  /* Comparison panel */
+  #compare-section {
+    margin-bottom: 1.75rem;
+    border-bottom: 0.5px solid var(--border);
+    padding-bottom: 1.5rem;
+  }
+
+  /* Day filter */
   #day-filter {
     display: flex;
     gap: 8px;
@@ -73,11 +116,7 @@
     margin-bottom: 1.75rem;
     align-items: center;
   }
-  .day-filter-label {
-    font-size: 13px;
-    color: var(--text-secondary);
-    margin-right: 4px;
-  }
+  .day-filter-label { font-size: 13px; color: var(--text-secondary); margin-right: 4px; }
   .filter-btn {
     background: var(--surface-1);
     border: 1.5px solid var(--border);
@@ -92,24 +131,26 @@
   .filter-btn:hover { color: var(--text-primary); border-color: var(--accent); }
   .filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-  .phase-note {
-    font-size: 11px;
-    color: var(--text-secondary);
-    margin-top: 6px;
-    font-style: italic;
-  }
-  .small-sample {
-    opacity: 0.5;
-  }
+  .phase-note { font-size: 11px; color: var(--text-secondary); margin-top: 6px; font-style: italic; }
 </style>
 </head>
 <body>
 <div id="page">
-  <h1>Chess.com rapid dashboard</h1>
+  <div id="header-row">
+    <h1>Chess.com rapid dashboard</h1>
+    <button id="theme-toggle">🌙 Dark</button>
+  </div>
+
   <div id="status">Loading rapid games from chess.com...</div>
   <div id="content" style="display:none;">
 
     <div id="player-selector"></div>
+
+    <!-- Comparison panel — top -->
+    <div id="compare-section">
+      <h3>All players — last 100 rapid</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;" id="compare-cards"></div>
+    </div>
 
     <div id="day-filter">
       <span class="day-filter-label">Period:</span>
@@ -124,44 +165,29 @@
 
     <div style="margin-bottom:2rem;">
       <p class="section-label">Rating trend</p>
-      <div class="chart-wrap" style="height:240px;">
-        <canvas id="ratingChart"></canvas>
-      </div>
+      <div class="chart-wrap" style="height:240px;"><canvas id="ratingChart"></canvas></div>
     </div>
 
     <div style="margin-bottom:2rem;">
       <p class="section-label">Result by game (most recent on right)</p>
-      <div class="chart-wrap" style="height:120px;">
-        <canvas id="streakChart"></canvas>
-      </div>
+      <div class="chart-wrap" style="height:120px;"><canvas id="streakChart"></canvas></div>
     </div>
 
     <div style="margin-bottom:2rem;">
       <p class="section-label">Winrate by opening (played 2+ times)</p>
-      <div class="chart-wrap" id="openingChartWrap">
-        <canvas id="openingChart"></canvas>
-      </div>
+      <div class="chart-wrap" id="openingChartWrap"><canvas id="openingChart"></canvas></div>
     </div>
 
     <div style="margin-bottom:2.5rem;">
       <p class="section-label">Winrate by game length — game phase proxy</p>
-      <div class="chart-wrap" style="height:200px;">
-        <canvas id="phasechart"></canvas>
-      </div>
+      <div class="chart-wrap" style="height:200px;"><canvas id="phaseChart"></canvas></div>
       <p class="phase-note">Short games (&lt;25 moves) → opening issues · Mid games (25–40) → middlegame · Long games (40–60+) → endgame conversion</p>
       <p class="phase-note">Buckets with &lt;10 games are less reliable — treat them as directional, not definitive.</p>
     </div>
 
     <div id="accuracySection" style="display:none;margin-bottom:2.5rem;">
-      <p class="section-label">Accuracy trend (reviewed games only)</p>
-      <div class="chart-wrap" style="height:200px;">
-        <canvas id="accuracyChart"></canvas>
-      </div>
-    </div>
-
-    <div style="border-top:0.5px solid var(--border);padding-top:1.5rem;">
-      <h3>All players — last 100 rapid</h3>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;" id="compare-cards"></div>
+      <p class="section-label">Accuracy trend (reviewed games only) — purple line = 5-game rolling avg</p>
+      <div class="chart-wrap" style="height:220px;"><canvas id="accuracyChart"></canvas></div>
     </div>
 
   </div>
@@ -178,21 +204,44 @@
   const DEFAULT_PLAYER = 0;
 
   const statusEl = document.getElementById('status');
-  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
-  const winColor = '#1baf7a', lossColor = '#e34948', drawColor = '#eda100';
-  const gridColor = isDark ? '#2c2c2a' : '#e1e0d9';
-  const textColor = isDark ? '#c3c2b7' : '#52514e';
-
   let charts = {};
   let allPlayerData = [];
   let activeIndex = DEFAULT_PLAYER;
-  let activeDays = 0; // 0 = all
+  let activeDays = 0;
 
+  // --- Theme toggle ---
+  const html = document.documentElement;
+  const toggleBtn = document.getElementById('theme-toggle');
+  function getEffectiveTheme() {
+    const t = html.getAttribute('data-theme');
+    if (t === 'dark') return 'dark';
+    if (t === 'light') return 'light';
+    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function updateToggleLabel() {
+    const eff = getEffectiveTheme();
+    toggleBtn.textContent = eff === 'dark' ? '☀️ Light' : '🌙 Dark';
+  }
+  toggleBtn.addEventListener('click', () => {
+    const eff = getEffectiveTheme();
+    html.setAttribute('data-theme', eff === 'dark' ? 'light' : 'dark');
+    updateToggleLabel();
+    renderForPlayer(activeIndex, activeDays);
+  });
+  updateToggleLabel();
+
+  function getColors() {
+    const dark = getEffectiveTheme() === 'dark';
+    return {
+      gridColor: dark ? '#2c2c2a' : '#e1e0d9',
+      textColor: dark ? '#c3c2b7' : '#52514e'
+    };
+  }
+
+  // --- Helpers ---
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   function isWin(r) { return r === 'win'; }
-  function isDraw(r) {
-    return ['agreed','repetition','stalemate','insufficient','50move','timevsinsufficient'].includes(r);
-  }
+  function isDraw(r) { return ['agreed','repetition','stalemate','insufficient','50move','timevsinsufficient'].includes(r); }
   function openingName(ecoUrl) {
     if (!ecoUrl) return 'Unknown';
     try { return decodeURIComponent(ecoUrl.split('/').pop()).replace(/-/g, ' '); }
@@ -201,8 +250,7 @@
   function getMoveCount(pgn) {
     if (!pgn) return null;
     const matches = pgn.match(/(\d+)\./g);
-    if (!matches) return null;
-    return parseInt(matches[matches.length - 1]);
+    return matches ? parseInt(matches[matches.length - 1]) : null;
   }
   function getPhaseBucket(moves) {
     if (moves === null) return null;
@@ -211,13 +259,19 @@
     if (moves < 60) return '40–59 moves';
     return '60+ moves';
   }
+  function rollingAvg(arr, window) {
+    return arr.map((_, i) => {
+      const slice = arr.slice(Math.max(0, i - window + 1), i + 1);
+      return slice.reduce((a,b) => a+b, 0) / slice.length;
+    });
+  }
 
+  // --- Fetch ---
   async function fetchLastNRapid(username, n) {
     const archivesRes = await fetch(`https://api.chess.com/pub/player/${username}/games/archives`);
-    if (!archivesRes.ok) throw new Error('Could not load archives for ' + username + ' (' + archivesRes.status + ')');
+    if (!archivesRes.ok) throw new Error('Could not load archives for ' + username);
     const { archives } = await archivesRes.json();
     const urls = archives.slice(-14);
-
     let allRapid = [], failedMonths = 0;
     for (let i = urls.length - 1; i >= 0 && allRapid.length < n; i--) {
       let res;
@@ -239,14 +293,15 @@
   function enrichGames(games, username) {
     return games.map(g => {
       const isWhite = g.white.username.toLowerCase() === username.toLowerCase();
-      const myResult = isWhite ? g.white.result : g.black.result;
-      const myRating = isWhite ? g.white.rating : g.black.rating;
+      const myResult  = isWhite ? g.white.result  : g.black.result;
+      const myRating  = isWhite ? g.white.rating  : g.black.rating;
+      const oppRating = isWhite ? g.black.rating  : g.white.rating;
       const myAccuracy = g.accuracies ? (isWhite ? g.accuracies.white : g.accuracies.black) : null;
       const moves = getMoveCount(g.pgn);
       let outcome = 'loss';
       if (isWin(myResult)) outcome = 'win';
       else if (isDraw(myResult)) outcome = 'draw';
-      return { outcome, myRating, myAccuracy, opening: openingName(g.eco), end_time: g.end_time, moves };
+      return { outcome, myRating, oppRating, myAccuracy, opening: openingName(g.eco), end_time: g.end_time, moves };
     });
   }
 
@@ -257,21 +312,26 @@
   }
 
   function computeStats(enriched) {
-    const wins = enriched.filter(e => e.outcome === 'win').length;
+    const wins  = enriched.filter(e => e.outcome === 'win').length;
     const draws = enriched.filter(e => e.outcome === 'draw').length;
     const losses = enriched.filter(e => e.outcome === 'loss').length;
     const winrate = enriched.length ? wins / enriched.length * 100 : 0;
     const ratingChange = enriched.length ? enriched[enriched.length-1].myRating - enriched[0].myRating : 0;
     const accGames = enriched.filter(e => e.myAccuracy !== null);
     const avgAccuracy = accGames.length ? accGames.reduce((s,e) => s+e.myAccuracy, 0) / accGames.length : null;
+    const highestRating = enriched.length ? Math.max(...enriched.map(e => e.myRating)) : null;
+    const winGames = enriched.filter(e => e.outcome === 'win');
+    const highestBeaten = winGames.length ? Math.max(...winGames.map(e => e.oppRating)) : null;
     return { wins, draws, losses, winrate, ratingChange, avgAccuracy,
-      currentRating: enriched.length ? enriched[enriched.length-1].myRating : null };
+      currentRating: enriched.length ? enriched[enriched.length-1].myRating : null,
+      highestRating, highestBeaten };
   }
 
   function destroyChart(id) {
     if (charts[id]) { charts[id].destroy(); delete charts[id]; }
   }
 
+  // --- Render ---
   function renderForPlayer(idx, days) {
     activeIndex = idx;
     activeDays = days ?? activeDays;
@@ -279,19 +339,19 @@
     const filtered = filterByDays(p.enriched, activeDays);
     const stats = computeStats(filtered);
     const accGames = filtered.filter(e => e.myAccuracy !== null);
+    const { gridColor, textColor } = getColors();
+    const winColor = '#1baf7a', lossColor = '#e34948', drawColor = '#eda100';
 
-    document.querySelectorAll('.player-card').forEach((el, i) => {
-      el.classList.toggle('active', i === idx);
-    });
+    document.querySelectorAll('.player-card').forEach((el, i) => el.classList.toggle('active', i === idx));
 
     // Metric cards
     const cards = [
-      {label:'Winrate', value: filtered.length ? stats.winrate.toFixed(1)+'%' : '—'},
-      {label:'Record', value: filtered.length ? stats.wins+'W - '+stats.losses+'L - '+stats.draws+'D' : '—'},
-      {label:'Rating change', value: filtered.length ? (stats.ratingChange>=0?'+':'')+stats.ratingChange : '—'},
-      {label:'Current rating', value: stats.currentRating ?? '—'},
-      {label:'Avg accuracy', value: stats.avgAccuracy!==null ? stats.avgAccuracy.toFixed(1)+'%' : '—'},
-      {label:'Games in period', value: filtered.length}
+      { label: 'Winrate',        value: filtered.length ? stats.winrate.toFixed(1)+'%' : '—' },
+      { label: 'Record',         value: filtered.length ? `${stats.wins}W - ${stats.losses}L - ${stats.draws}D` : '—' },
+      { label: 'Rating change',  value: filtered.length ? (stats.ratingChange>=0?'+':'')+stats.ratingChange : '—' },
+      { label: 'Current rating', value: stats.currentRating ?? '—' },
+      { label: 'Avg accuracy',   value: stats.avgAccuracy !== null ? stats.avgAccuracy.toFixed(1)+'%' : '—' },
+      { label: 'Games in period',value: filtered.length }
     ];
     document.getElementById('metric-cards').innerHTML = cards.map(c => `
       <div class="card">
@@ -311,7 +371,7 @@
       .map(([name,s]) => ({name, games:s.w+s.l+s.d, w:s.w, l:s.l, d:s.d, wr:(s.w+0.5*s.d)/(s.w+s.l+s.d)*100}))
       .filter(o => o.games >= 2).sort((a,b) => b.games - a.games).slice(0, 12);
 
-    // Phase/game-length breakdown
+    // Phase breakdown
     const phaseBuckets = ['<25 moves','25–39 moves','40–59 moves','60+ moves'];
     const phaseStats = {};
     phaseBuckets.forEach(b => phaseStats[b] = {w:0,l:0,d:0});
@@ -323,151 +383,168 @@
         else phaseStats[bucket].l++;
       }
     });
+    const phaseData = phaseBuckets.map(b => {
+      const s = phaseStats[b];
+      const total = s.w+s.l+s.d;
+      return { bucket:b, w:s.w, l:s.l, d:s.d, total, wr: total ? (s.w+0.5*s.d)/total*100 : null };
+    });
 
-    // --- RATING CHART ---
+    // --- Rating chart ---
     destroyChart('rating');
     charts['rating'] = new Chart(document.getElementById('ratingChart'), {
       type: 'line',
       data: {
         labels: filtered.map((e,i) => i+1),
-        datasets: [{
-          label: 'Rating', data: filtered.map(e => e.myRating),
-          borderColor: '#2a78d6', backgroundColor: 'rgba(42,120,214,0.1)',
-          fill: true, tension: 0.2, pointRadius: filtered.length > 50 ? 1 : 3,
-          pointBackgroundColor: '#2a78d6'
-        }]
+        datasets: [{ label:'Rating', data: filtered.map(e => e.myRating),
+          borderColor:'#2a78d6', backgroundColor:'rgba(42,120,214,0.1)',
+          fill:true, tension:0.2, pointRadius: filtered.length > 50 ? 1 : 3,
+          pointBackgroundColor:'#2a78d6' }]
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display:false } },
+      options: { responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false} },
         scales: {
-          x: { title:{display:true,text:'Game # (chronological)',color:textColor}, grid:{display:false}, ticks:{color:textColor, maxTicksLimit:10} },
-          y: { title:{display:true,text:'Rating',color:textColor}, grid:{color:gridColor}, ticks:{color:textColor} }
+          x:{ title:{display:true,text:'Game # (chronological)',color:textColor}, grid:{display:false}, ticks:{color:textColor, maxTicksLimit:10} },
+          y:{ title:{display:true,text:'Rating',color:textColor}, grid:{color:gridColor}, ticks:{color:textColor} }
         }
       }
     });
 
-    // --- STREAK CHART ---
+    // --- Streak chart ---
     destroyChart('streak');
     charts['streak'] = new Chart(document.getElementById('streakChart'), {
       type: 'bar',
       data: {
         labels: filtered.map((e,i) => i+1),
-        datasets: [{
-          data: filtered.map(e => e.outcome==='win'?1:e.outcome==='draw'?0.3:-1),
+        datasets:[{ data: filtered.map(e => e.outcome==='win'?1:e.outcome==='draw'?0.3:-1),
           backgroundColor: filtered.map(e => e.outcome==='win'?winColor:e.outcome==='draw'?drawColor:lossColor),
-          borderRadius: 2, barPercentage: 0.85
-        }]
+          borderRadius:2, barPercentage:0.85 }]
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>filtered[ctx.dataIndex].outcome}} },
-        scales: { x:{display:false}, y:{display:false, min:-1.2, max:1.2} }
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>filtered[ctx.dataIndex].outcome}} },
+        scales:{ x:{display:false}, y:{display:false, min:-1.2, max:1.2} }
       }
     });
 
-    // --- OPENING CHART ---
+    // --- Opening chart ---
     destroyChart('opening');
     const openingHeight = Math.max(160, openingEntries.length*44+80);
     document.getElementById('openingChartWrap').style.height = openingHeight+'px';
     if (openingEntries.length) {
       charts['opening'] = new Chart(document.getElementById('openingChart'), {
-        type: 'bar',
-        data: {
+        type:'bar',
+        data:{
           labels: openingEntries.map(o => o.name),
-          datasets: [
-            { label:'Wins',   data: openingEntries.map(o => o.w), backgroundColor: winColor,  borderRadius:0 },
-            { label:'Draws',  data: openingEntries.map(o => o.d), backgroundColor: drawColor, borderRadius:0 },
-            { label:'Losses', data: openingEntries.map(o => o.l), backgroundColor: lossColor, borderRadius:0 }
+          datasets:[
+            { label:'Wins',   data: openingEntries.map(o => o.w), backgroundColor:winColor,  borderRadius:0 },
+            { label:'Draws',  data: openingEntries.map(o => o.d), backgroundColor:drawColor, borderRadius:0 },
+            { label:'Losses', data: openingEntries.map(o => o.l), backgroundColor:lossColor, borderRadius:0 }
           ]
         },
-        options: {
-          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: {
-            legend: { display:true, position:'top', labels:{color:textColor, font:{size:12}, boxWidth:12, padding:16} },
-            tooltip: {
-              callbacks: {
-                title: (items) => openingEntries[items[0].dataIndex].name,
-                afterBody: (items) => {
-                  const o = openingEntries[items[0].dataIndex];
-                  return [`Total: ${o.games} games`, `${o.w}W · ${o.d}D · ${o.l}L`, `Score: ${o.wr.toFixed(0)}%`];
-                }
+        options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+          plugins:{
+            legend:{ display:true, position:'top', labels:{color:textColor, font:{size:12}, boxWidth:12, padding:16} },
+            tooltip:{ callbacks:{
+              title:(items) => openingEntries[items[0].dataIndex].name,
+              afterBody:(items) => {
+                const o = openingEntries[items[0].dataIndex];
+                return [`Total: ${o.games} games`, `${o.w}W · ${o.d}D · ${o.l}L`, `Score: ${o.wr.toFixed(0)}%`];
               }
-            }
+            }}
           },
-          scales: {
-            x: { stacked:true, grid:{color:gridColor}, ticks:{color:textColor, stepSize:1} },
-            y: { stacked:true, grid:{display:false}, ticks:{color:textColor, font:{size:11}} }
+          scales:{
+            x:{ stacked:true, grid:{color:gridColor}, ticks:{color:textColor, stepSize:1} },
+            y:{ stacked:true, grid:{display:false}, ticks:{color:textColor, font:{size:11}} }
           }
         }
       });
     }
 
-    // --- PHASE / GAME LENGTH CHART ---
+    // --- Phase chart ---
     destroyChart('phase');
-    const phaseData = phaseBuckets.map(b => {
-      const s = phaseStats[b];
-      const total = s.w+s.l+s.d;
-      return { bucket:b, w:s.w, l:s.l, d:s.d, total,
-        wr: total ? (s.w+0.5*s.d)/total*100 : null };
-    });
-    charts['phase'] = new Chart(document.getElementById('phasechart'), {
-      type: 'bar',
-      data: {
-        labels: phaseData.map(p => p.bucket + ' (' + p.total + ')'),
-        datasets: [
-          { label:'Wins',   data: phaseData.map(p => p.w), backgroundColor: winColor,  borderRadius:0 },
-          { label:'Draws',  data: phaseData.map(p => p.d), backgroundColor: drawColor, borderRadius:0 },
-          { label:'Losses', data: phaseData.map(p => p.l), backgroundColor: lossColor, borderRadius:0 }
+    charts['phase'] = new Chart(document.getElementById('phaseChart'), {
+      type:'bar',
+      data:{
+        labels: phaseData.map(p => p.bucket+' ('+p.total+')'),
+        datasets:[
+          { label:'Wins',   data: phaseData.map(p => p.w), backgroundColor:winColor,  borderRadius:0 },
+          { label:'Draws',  data: phaseData.map(p => p.d), backgroundColor:drawColor, borderRadius:0 },
+          { label:'Losses', data: phaseData.map(p => p.l), backgroundColor:lossColor, borderRadius:0 }
         ]
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-          legend: { display:true, position:'top', labels:{color:textColor, font:{size:12}, boxWidth:12, padding:16} },
-          tooltip: {
-            callbacks: {
-              afterBody: (items) => {
-                const d = phaseData[items[0].dataIndex];
-                const wr = d.total ? ((d.w+0.5*d.d)/d.total*100).toFixed(0) : '—';
-                const flag = d.total < 10 ? ' ⚠ small sample' : '';
-                return [`Total: ${d.total} games`, `${d.w}W · ${d.d}D · ${d.l}L`, `Score: ${wr}%${flag}`];
-              }
-            }
-          }
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{ display:true, position:'top', labels:{color:textColor, font:{size:12}, boxWidth:12, padding:16} },
+          tooltip:{ callbacks:{ afterBody:(items) => {
+            const d = phaseData[items[0].dataIndex];
+            const wr = d.total ? ((d.w+0.5*d.d)/d.total*100).toFixed(0) : '—';
+            return [`Total: ${d.total} games`, `${d.w}W · ${d.d}D · ${d.l}L`, `Score: ${wr}%${d.total<10?' ⚠ small sample':''}`];
+          }}}
         },
-        scales: {
-          x: { stacked:true, grid:{display:false}, ticks:{color:textColor} },
-          y: { stacked:true, grid:{color:gridColor}, ticks:{color:textColor, stepSize:1} }
+        scales:{
+          x:{ stacked:true, grid:{display:false}, ticks:{color:textColor} },
+          y:{ stacked:true, grid:{color:gridColor}, ticks:{color:textColor, stepSize:1} }
         }
       }
     });
 
-    // --- ACCURACY CHART ---
+    // --- Accuracy chart ---
     destroyChart('accuracy');
     const accSection = document.getElementById('accuracySection');
     if (accGames.length >= 2) {
       accSection.style.display = 'block';
-      const minAcc = Math.min(...accGames.map(e => e.myAccuracy));
-      const yMin = Math.max(40, Math.floor(minAcc / 5) * 5 - 5);
+      const accValues = accGames.map(e => e.myAccuracy);
+      const avgLine = rollingAvg(accValues, 5);
+      const minVal = Math.min(...accValues), maxVal = Math.max(...accValues);
+      const minIdx = accValues.indexOf(minVal), maxIdx = accValues.indexOf(maxVal);
+      const yMin = Math.max(40, Math.floor(minVal / 5) * 5 - 5);
+
+      // Point labels plugin — only show min and max
+      const minMaxLabelPlugin = {
+        id: 'minMaxLabel',
+        afterDatasetsDraw(chart) {
+          const ctx = chart.ctx;
+          const ds = chart.getDatasetMeta(0);
+          [minIdx, maxIdx].forEach(i => {
+            const pt = ds.data[i];
+            if (!pt) return;
+            const val = accValues[i].toFixed(0)+'%';
+            ctx.save();
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillStyle = i === maxIdx ? '#1baf7a' : '#e34948';
+            ctx.textAlign = 'center';
+            ctx.fillText(val, pt.x, pt.y - 8);
+            ctx.restore();
+          });
+        }
+      };
+
       charts['accuracy'] = new Chart(document.getElementById('accuracyChart'), {
-        type: 'line',
-        data: {
+        type:'line',
+        plugins: [minMaxLabelPlugin],
+        data:{
           labels: accGames.map((e,i) => i+1),
-          datasets: [{
-            label: 'Accuracy %', data: accGames.map(e => e.myAccuracy),
-            borderColor: '#7f77dd', backgroundColor: 'rgba(127,119,221,0.1)',
-            fill: true, tension: 0.3,
-            pointRadius: accGames.length > 50 ? 1 : 3,
-            pointBackgroundColor: '#7f77dd'
-          }]
+          datasets:[
+            { label:'Accuracy %', data: accValues,
+              borderColor:'rgba(127,119,221,0.35)', backgroundColor:'rgba(127,119,221,0.07)',
+              fill:true, tension:0.3,
+              pointRadius: accValues.map((_, i) => (i===minIdx||i===maxIdx) ? 5 : (accValues.length > 50 ? 0 : 2)),
+              pointBackgroundColor: accValues.map((_,i) => i===maxIdx?'#1baf7a':i===minIdx?'#e34948':'#7f77dd'),
+              borderWidth:1.5
+            },
+            { label:'5-game avg', data: avgLine,
+              borderColor:'#7f77dd', backgroundColor:'transparent',
+              fill:false, tension:0.3, pointRadius:0, borderWidth:2.5
+            }
+          ]
         },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend:{display:false} },
-          scales: {
-            x: { title:{display:true,text:'Reviewed game #',color:textColor}, grid:{display:false}, ticks:{color:textColor, maxTicksLimit:10} },
-            y: { title:{display:true,text:'Accuracy %',color:textColor}, grid:{color:gridColor}, ticks:{color:textColor}, min: yMin, max:100 }
+        options:{ responsive:true, maintainAspectRatio:false,
+          plugins:{
+            legend:{ display:true, position:'top', labels:{color:textColor, font:{size:12}, boxWidth:12, padding:16} },
+            tooltip:{ callbacks:{ label:(ctx) => ctx.datasetIndex===0 ? `Accuracy: ${ctx.raw.toFixed(1)}%` : `5-game avg: ${ctx.raw.toFixed(1)}%` }}
+          },
+          scales:{
+            x:{ title:{display:true,text:'Reviewed game #',color:textColor}, grid:{display:false}, ticks:{color:textColor, maxTicksLimit:10} },
+            y:{ title:{display:true,text:'Accuracy %',color:textColor}, grid:{color:gridColor}, ticks:{color:textColor}, min:yMin, max:100 }
           }
         }
       });
@@ -476,6 +553,7 @@
     }
   }
 
+  // --- Load ---
   try {
     for (let i = 0; i < PLAYERS.length; i++) {
       statusEl.textContent = `Loading ${PLAYERS[i].label}'s games... (${i+1}/${PLAYERS.length})`;
@@ -499,16 +577,7 @@
       selectorEl.appendChild(btn);
     });
 
-    // Day filter buttons
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        renderForPlayer(activeIndex, parseInt(btn.dataset.days));
-      });
-    });
-
-    // Comparison panel (always unfiltered — last 100)
+    // Comparison panel (always last 100, unfiltered)
     document.getElementById('compare-cards').innerHTML = allPlayerData.map(p => {
       const s = computeStats(p.enriched);
       if (!p.enriched.length) {
@@ -527,10 +596,21 @@
           <tr><td style="color:var(--text-secondary);">Record</td><td style="text-align:right;">${s.wins}W - ${s.losses}L - ${s.draws}D</td></tr>
           <tr><td style="color:var(--text-secondary);">Rating change</td><td style="text-align:right;">${s.ratingChange>=0?'+':''}${s.ratingChange}</td></tr>
           <tr><td style="color:var(--text-secondary);">Current rating</td><td style="text-align:right;">${s.currentRating ?? '—'}</td></tr>
+          <tr><td style="color:var(--text-secondary);">Highest rating</td><td style="text-align:right;">${s.highestRating ?? '—'}</td></tr>
+          <tr><td style="color:var(--text-secondary);">Highest rated beaten</td><td style="text-align:right;">${s.highestBeaten ?? '—'}</td></tr>
           <tr><td style="color:var(--text-secondary);">Avg accuracy</td><td style="text-align:right;">${s.avgAccuracy!==null ? s.avgAccuracy.toFixed(1)+'%' : '—'}</td></tr>
         </table>
       </div>`;
     }).join('');
+
+    // Day filter
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderForPlayer(activeIndex, parseInt(btn.dataset.days));
+      });
+    });
 
     renderForPlayer(DEFAULT_PLAYER, 0);
 
